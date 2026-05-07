@@ -151,7 +151,15 @@ def write_wav_bytes(audio_int16: np.ndarray, sample_rate: int) -> bytes:
 def transcribe(wav_bytes: bytes) -> str:
     """POST al whisper-server. Devuelve texto crudo."""
     files = {"file": ("dictado.wav", wav_bytes, "audio/wav")}
-    data  = {"language": config.WHISPER_LANGUAGE, "response_format": "json"}
+    data  = {
+        "language": config.WHISPER_LANGUAGE,
+        "response_format": "json",
+    }
+    # Initial prompt opcional: sesga el decodificador hacia nuestro dominio
+    # para reducir alucinaciones. Solo se envía si está habilitado en config.
+    initial = getattr(config, "WHISPER_INITIAL_PROMPT", "") or ""
+    if initial and getattr(config, "WHISPER_USE_INITIAL_PROMPT", False):
+        data["prompt"] = initial
     r = requests.post(config.WHISPER_URL, files=files, data=data, timeout=30)
     r.raise_for_status()
     js = r.json()
@@ -159,6 +167,9 @@ def transcribe(wav_bytes: bytes) -> str:
     text = js.get("text") or js.get("transcription") or ""
     if isinstance(text, list):
         text = " ".join(t.get("text", "") for t in text)
+    # whisper-server inserta \n al cortar segmentos largos; los aplastamos
+    # para que Qwen no se confunda con saltos de línea en medio de palabras.
+    text = " ".join(text.split())
     return text.strip()
 
 def build_system_prompt() -> str:
@@ -180,6 +191,24 @@ def clean(text: str) -> str:
     r = requests.post(config.OLLAMA_URL, json=payload, timeout=config.OLLAMA_TIMEOUT)
     r.raise_for_status()
     out = r.json().get("response", "").strip()
+
+    # Guardrail: detecta cuando Qwen "responde" al input en vez de limpiarlo.
+    # Síntomas: comienza con frases meta ("Por favor", "Claro,", "Aquí tienes")
+    # o el output es desproporcionadamente más largo/corto que el input.
+    META_PREFIXES = (
+        "por favor", "aquí tienes", "aqui tienes", "claro,", "claro ",
+        "entendido", "perfecto,", "ok,", "como asistente", "lo siento",
+    )
+    out_lower = out.lower()
+    looks_meta = any(out_lower.startswith(p) for p in META_PREFIXES)
+    len_ratio = len(out) / max(len(text), 1)
+    too_different = len_ratio > 1.8 or len_ratio < 0.4
+    if looks_meta or too_different:
+        log.warning(
+            "Qwen meta-respuesta detectada (ratio=%.2f, meta=%s). Pego raw.",
+            len_ratio, looks_meta
+        )
+        return text
     return out
 
 def paste(text: str):
