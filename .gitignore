@@ -1,0 +1,33 @@
+# Build artefacts y dependencias clonadas
+bin/whisper.cpp/
+
+# Modelos descargados (pesados — los baja install/02 y ollama)
+*.bin
+*.gguf
+
+# Logs de runtime y reportes de ejecuciones particulares
+logs/
+install/report-*.txt
+install/report-*.log
+
+# Notas internas (bitácora del setup, no relevante para usuarios del repo)
+setup-log.md
+notes/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# Editores
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Generados por start-dictado.ps1 al instalar dependencias
+pip-log.txt
